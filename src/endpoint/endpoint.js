@@ -5,6 +5,7 @@ import Event from '../ulity/event';
 import Events from '../base/event';
 import axios from 'axios';
 import * as Base from '../base/export';
+import { Promise } from 'es6-promise';
 
 export default class RTCEndpoint extends Event
 {
@@ -24,6 +25,8 @@ export default class RTCEndpoint extends Event
             recvOnly:false,
             resolution:{w:0,h:0},
             usedatachannel:false,
+            videoId:'',
+            audioId:'',
         };
         
         this.options = Object.assign({}, defaults, options);
@@ -162,6 +165,14 @@ export default class RTCEndpoint extends Event
 
         if(this.options.resolution.w !=0 && this.options.resolution.h!=0 && typeof videoConstraints == 'object'){
             videoConstraints.resolution = new Base.Resolution(this.options.resolution.w ,this.options.resolution.h);
+        }
+
+        if(typeof videoConstraints == 'object' && this.options.videoId != ''){
+            videoConstraints.deviceId = this.options.videoId;
+        }
+
+        if(typeof audioConstraints == 'object' && this.options.audioId != ''){
+            audioConstraints.deviceId = this.options.audioId;
         }
 
         Base.MediaStreamFactory.createMediaStream(new Base.StreamConstraints(
@@ -335,6 +346,52 @@ export default class RTCEndpoint extends Event
             debug.error(this.TAG,'data channel is null');
         }
     }
+
+    switchVideo(useCamera,deviceId){
+        let videoConstraints = false;
+        if(useCamera){
+            videoConstraints = new Base.VideoTrackConstraints(Base.VideoSourceInfo.CAMERA);
+            videoConstraints.deviceId = deviceId;
+        }else{
+            videoConstraints = new Base.VideoTrackConstraints(Base.VideoSourceInfo.SCREENCAST);
+        }
+
+        return Base.MediaStreamFactory.createMediaStream(new Base.StreamConstraints(
+            false, videoConstraints)).then(stream=>{
+               const videosender =  this.pc.getSenders().find(e => e.track.kind === 'video');
+               if(videosender != null && stream.getVideoTracks().length>0){
+                    this._localStream.removeTrack(videosender.track);
+                    this._localStream.addTrack(stream.getVideoTracks()[0]);
+                    // stream change 
+                    this.dispatch(Events.WEBRTC_ON_LOCAL_STREAM,this._localStream);
+                    return videosender.replaceTrack(stream.getVideoTracks()[0]);
+               }
+               return Promise.reject('video not exist or deviceid not vaild');
+            });
+    }
+
+    switcAudio(useMic,deviceId){
+        let audioConstraints = false;
+        if(useMic){
+            audioConstraints = new Base.AudioTrackConstraints(Base.AudioSourceInfo.MIC);
+            audioConstraints.deviceId = deviceId;
+        }else{
+            audioConstraints = new Base.AudioTrackConstraints(Base.AudioSourceInfo.SCREENCAST);
+        }
+        return Base.MediaStreamFactory.createMediaStream(new Base.StreamConstraints(
+            audioConstraints, false)).then(stream=>{
+               const audiosender =  this.pc.getSenders().find(e => e.track.kind === 'audio');
+               if(audiosender != null && stream.getAudioTracks().length>0){
+                    this._localStream.removeTrack(audiosender.track);
+                    this._localStream.addTrack(stream.getAudioTracks()[0]);
+                    // stream change 
+                    this.dispatch(Events.WEBRTC_ON_LOCAL_STREAM,this._localStream);
+                    return audiosender.replaceTrack(stream.getAudioTracks()[0]);
+               }
+               return Promise.reject('audio not exist or deviceid not vaild');
+            });
+    }
+
     closeDataChannel(){
         if(this.datachannel){
             this.datachannel.close();
